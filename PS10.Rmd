@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 10"
-author: "WRITE YOUR NAME(S) HERE"
+author: "Sarah Teichman"
 date: "2017-11-28"
 output:
   html_document:
@@ -30,7 +30,13 @@ Please indicate who you collaborated with on this assignment:
 library(tidyverse)
 library(broom)
 library(glmnet)
+library(Metrics)
+```
 
+
+#Loading Data
+
+```{r}
 train <- read_csv("data/train.csv")
 test <- read_csv("data/test.csv")
 sample_submission <- read_csv("data/sample_submission.csv")
@@ -53,16 +59,58 @@ predictor_matrix_train <- model.matrix(model_formula, data = train)[, -1]
 predictor_matrix_test <- model.matrix(model_formula, data = test)[, -1]
 ```
 
-
-# Do work and create submission files:
+# Exploratory data analysis
 
 ```{r}
-
+ggplot(train,aes(x=price_doc)) +
+  geom_histogram() +
+  scale_x_log10() + 
+  labs(x="Price (in roubles)", title="Distribution of prices")
 ```
 
+# Model creation and selection
 
+```{r}
+#fit full lm model, fit to train and test sets
+train_full <- lm(model_formula, data = train)
+train_predict <- predict(train_full)
+test_predict <- predict(train_full, newdata=test)
+```
 
+```{r}
+#set lambda values
+lambda_inputs <- 10^seq(-2, 10, length = 100)
+#create lasso model
+train_lasso <- cv.glmnet(x=predictor_matrix_train, y=train$log_price_doc, alpha = 1, lambda = lambda_inputs)
+lambda_star <- train_lasso$lambda.min
+lambda_star_1SE <- train_lasso$lambda.1se
+plot(train_lasso)
+abline(v=log(lambda_star), col="red")
+abline(v=log(lambda_star_1SE), col="blue")
+#fit lasso model to train and test sets
+train_predict_lasso <- predict(train_lasso, newx=predictor_matrix_train, s=lambda_star_1SE) %>% 
+  as.vector()
+test_predict_lasso <- predict(train_lasso, newx=predictor_matrix_test, s=lambda_star_1SE) %>%
+  as.vector()
+```
 
+```{r}
+test_predict <- exp(test_predict)
+test_predict_lasso <- exp(test_predict_lasso)
+train_predict <- exp(train_predict)
+train_predict_lasso <- exp(train_predict_lasso)
+submission_full <- data.frame(test$id, test_predict)
+submission_lasso <- data.frame(test$id, test_predict_lasso)
+names(submission_full) <- c("Id", "price_doc")
+names(submission_lasso) <- c("Id", "price_doc")
+write.csv(submission_full, "submission_full.csv", row.names=FALSE)
+write.csv(submission_lasso, "submission_lasso.csv", row.names=FALSE)
+```
+
+```{r}
+rmsle(train$price_doc,train_predict)
+rmsle(train$price_doc,train_predict_lasso)
+```
 
 # Scoreboard
 
@@ -72,5 +120,5 @@ in these cells:
 
 Method                | Training Score  | Kaggle Score
 --------------------- | -------------   | -------------
-lm                    |                 |  
-LASSO crossvalidated  |                 |  
+lm                    |  0.2534         |  2.6341
+LASSO crossvalidated  |  0.5172         |  0.4258
